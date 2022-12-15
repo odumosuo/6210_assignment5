@@ -5,39 +5,40 @@
 # BiocManager::install("PCAtools")
 
 # ### load package(S)
-# library(tidyverse)
-# library(vegan)
-# library(Biostrings)
-# library(cluster)
-# library(Rtsne)
-# library(vegan)
-# library(ape) 
-# library(DECIPHER)
+library(tidyverse)
+library(vegan)
+library(Biostrings)
+library(rentrez)
+library(cluster)
+library(Rtsne)
+library(vegan)
+library(ape)
+library(DECIPHER)
 library(PCAtools)
-#
-# ###Get present Working Directory. Previously set working directory with setwd(). Excluded runnable function to prevent error.
-# getwd()
-# 
-# 
-# 
-# 
-# #### Made function ####
-# ###make a function that retruns the total within sum of sqaures after a k-means analysis. k is number of clusters
-# get_tot_withinss <- function(k, numeric_matrix){
-#   cl <- kmeans(numeric_matrix, k, nstart = 10)
-#   return(cl$tot.withinss)
-# }
-# 
-# 
-# ### make a function to get the average silhouette width for k clusters
-# get_average_sil <- function(k, numeric_matrix){
-#   clust <- kmeans(numeric_matrix, k, nstart = 10)
-#   silh <- silhouette(clust$cluster, dist(numeric_matrix))
-#   return(mean(silh[, 3]))#get the average fo the silhouette width
-# }
-# 
-# 
-# 
+
+###Get present Working Directory. Previously set working directory with setwd(). Excluded runnable function to prevent error.
+getwd()
+
+
+
+
+#### Made function ####
+###make a function that retruns the total within sum of sqaures after a k-means analysis. k is number of clusters
+get_tot_withinss <- function(k, numeric_matrix){
+  cl <- kmeans(numeric_matrix, k, nstart = 10)
+  return(cl$tot.withinss)
+}
+
+
+### make a function to get the average silhouette width for k clusters
+get_average_sil <- function(k, numeric_matrix){
+  clust <- kmeans(numeric_matrix, k, nstart = 10)
+  silh <- silhouette(clust$cluster, dist(numeric_matrix))
+  return(mean(silh[, 3]))#get the average fo the silhouette width
+}
+
+
+
 # #### Data exploration ####
 # 
 # ### Get Bold information
@@ -262,7 +263,7 @@ plot(ks, tot_within_ss, type = "b", main = "Total sum of square analysis for opt
 
 ## Figure out K using average silhouette method
 #ks will start from 2 because cannot get mean of 1 value for 1 group
-set.seed(999)
+set.seed(987)
 ks2 <- 2:15
 average_sil_values <- sapply(ks2, get_average_sil, numeric_matrix = numeric_data_matrix) 
 #plot a graph of average silhouttes vs number of clusters
@@ -302,7 +303,7 @@ PCA <- prcomp(numeric_data_matrix)
 #get summary of plots
 summary(PCA)
 #plot the PCA with the top two principal components showing the vectors
-biplot(PCA)
+stats::biplot(PCA)
 #make species name a factor for analysis and plots
 data_for_analysis$species_name <- as.factor(data_for_analysis$species_name)
 #plot of PCA with the assigned species name 
@@ -382,7 +383,7 @@ plot(hierach)
 
 ##Plot clusters on a PCA
 #Define cluster by cutting the tree at a specific height or defining the number of clusters
-plot(clusterpca$x[ ,1:2], col = cutree(hierach, k = 4), pch = 16)
+plot(PCA$x[ ,1:2], col = cutree(hierach, k = 4), pch = 16)
 #compare the results of hierachical clustering vs. k-means
 table(kmeans_clustering$cluster, cutree(hierach, h = 0.03))
 
@@ -406,7 +407,7 @@ plot(hierach2)
 
 ##Plot clusters on a PCA
 #Define cluster by cutting the tree at a specific height or defining the number of clusters
-plot(clusterpca$x[ ,1:2], col = cutree(hierach2, k = 4), pch = 16)
+plot(PCA$x[ ,1:2], col = cutree(hierach2, k = 4), pch = 16)
 #compare the results of hierarchical clustering vs. k-means
 table(kmeans_clustering$cluster, cutree(hierach2, h = 0.03))
 
