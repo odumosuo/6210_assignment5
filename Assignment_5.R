@@ -1,9 +1,11 @@
-# #### Setting up ####
-# ### instal packages
+#### Setting up ####
+### install packages
 # install.packages("Rtsne")
 # install.packages("BiocManager")
 # BiocManager::install("PCAtools")
 # install.packages("ggalt")
+# install.packages("dendextend")
+# install.packages("ggpubr")
 
 # ### load package(S)
 library(tidyverse)
@@ -17,6 +19,9 @@ library(ape)
 library(DECIPHER)
 library(PCAtools)
 library(ggalt)
+library(dendextend)
+library(ggrepel)
+library(ggpubr)
 
 ###Get present Working Directory. Previously set working directory with setwd(). Excluded runnable function to prevent error.
 getwd()
@@ -24,13 +29,12 @@ getwd()
 
 
 
-#### Made function ####
+#### Made functions ####
 ###make a function that retruns the total within sum of sqaures after a k-means analysis. k is number of clusters
 get_tot_withinss <- function(k, numeric_matrix){
   cl <- kmeans(numeric_matrix, k, nstart = 10)
   return(cl$tot.withinss)
 }
-
 
 ### make a function to get the average silhouette width for k clusters
 get_average_sil <- function(k, numeric_matrix){
@@ -40,16 +44,39 @@ get_average_sil <- function(k, numeric_matrix){
 }
 
 
+### function to plot PCA biplot and choose clustering method. clustering method is column names of PCA metada
+create_PCA_plot <- function(title_of_plot, clustering){
+  PCAtools::biplot(pcatools_pca, lab = rownames(metadata_pca),
+                   colby = {{clustering}}, pointSize = 3,
+                   colkey = c("red", "blue", "green", "black"),
+                   title = title_of_plot, titleLabSize = 10,
+                   shape = "species_name",
+                   encircle = TRUE, encircleFill = TRUE)
+}
 
-# #### Data exploration ####
-# 
-# ### Get Bold information
-# ##Get Bold file from online
-# Bold_ursidae <- read_tsv("http://www.boldsystems.org/index.php/API_Public/combined?taxon=Ursidae&format=tsv")
-# #save Bold file to current working directory
-# write_tsv(Bold_ursidae, "Bold_ursidae_data.txt")
-# View(Bold_ursidae)
-Bold_ursidae <- read_tsv("ursidae_bold_data.txt")
+
+
+### function to plot t-SNE analysis coloured by species name
+create_tSNE_plot <- function(title_of_plot, rtsne){
+  tsne_plot <- data.frame(x = {{rtsne$Y[ , 1]}}, y = {{rtsne$Y[ , 2]}}, species_name = as.factor(data_for_analysis$species_name))
+  ggplot(tsne_plot, aes(x = x, y = y)) +
+    geom_encircle(alpha = 0.2, aes(group = species_name, fill = species_name)) +
+    geom_point(aes(color = species_name)) +
+    labs(title = title_of_plot, x = "Dimension 1", y = "Dimension 2") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
+    scale_size(range = c(0.01,0.01))
+}
+
+
+#### Data exploration ####
+
+### Get Bold information
+##Get Bold file from online
+Bold_ursidae <- read_tsv("http://www.boldsystems.org/index.php/API_Public/combined?taxon=Ursidae&format=tsv")
+#save Bold file to current working directory
+write_tsv(Bold_ursidae, "Bold_ursidae_data.txt")
+View(Bold_ursidae)
+Bold_ursidae <- read_tsv("Bold_ursidae_data.txt")
 ##Explore variables in the dataframe 
 names(Bold_ursidae)
 ##Create a subset of interested variables from Bold_ursidae to form into new tibble called Bold_ursidae2. Only take rows where markercode is COI-5P
@@ -226,10 +253,6 @@ class(combined_NCBI_and_Bold$clean_nucleotides)
 ##figure out the representation of each species in dataset
 table(combined_NCBI_and_Bold$species_name)
 ##To reduce noise, we will omit species that are have sample sizes less than 10 after filter steps.
-# subset_of_combined <- combined_NCBI_and_Bold %>%
-#   filter(!species_name %in% c("Tremarctos ornatus", "Arctodus simus", "Arctotherium sp.", "Helarctos malayanus", "Ursus deningeri", "Ursus ingressus", "Ailuropoda melanoleuca", "Ursus americanus", "Melursus ursinus" ))
-
-
 subset_of_combined <- combined_NCBI_and_Bold %>%
   group_by (species_name) %>%
   mutate (count = n()) %>%
@@ -268,7 +291,14 @@ set.seed(999)
 ks <- 1:15
 tot_within_ss <- sapply(ks, get_tot_withinss, numeric_matrix = numeric_data_matrix)
 #plot a graph of tot_withinss against the value of K used
-plot(ks, tot_within_ss, type = "b", main = "Total sum of square analysis for optimal k", xlab="Number of clusters K", ylab="Total within-clusters sum of squares")
+df_sum_of_squares <- data.frame(x = ks, y = tot_within_ss ) 
+
+ss_plot <- ggplot(data = df_sum_of_squares, aes(x = x, y = y)) +
+  geom_line(color = "blue") +
+  geom_point(color = "blue") +
+  labs(title ="Total sum of square analysis for optimal k", x = "Number of clusters: K", y = "Total within-clusters sum of squares", colour = "Genus") +
+  theme(plot.title = element_text(hjust = 0.5))
+
 
 
 ## Figure out K using average silhouette method
@@ -277,10 +307,16 @@ set.seed(987)
 ks2 <- 2:15
 average_sil_values <- sapply(ks2, get_average_sil, numeric_matrix = numeric_data_matrix) 
 #plot a graph of average silhouttes vs number of clusters
-plot(ks2, average_sil_values, type = "b", main = "Silhouette analysis for optimal k", xlab="Number of clusters K", ylab="Average Silhouettes")
+plot(ks2, average_sil_values, type = "b", main = "Silhouette analysis for optimal k", xlab="Number of clusters: K", ylab="Average Silhouettes")
 
+#create dataframe for values
+df_average_sil <- data.frame(x = ks2, y = average_sil_values ) 
 
-
+sil_plot <- ggplot(data = df_average_sil, aes(x = x, y = y)) +
+  geom_line(color = "blue") +
+  geom_point(color = "blue") +
+  labs(title ="Silhouette analysis for optimal k", x = "Number of clusters: K", y = "Average Silhouettes", colour = "Genus") +
+  theme(plot.title = element_text(hjust = 0.5))
 
 
 
@@ -303,82 +339,6 @@ kmeans_clustering
 
 
 
-
-###Plots to reduce dimension
-
-
-##use PCA plot to reduce dimensions 
-set.seed(222)
-PCA <- prcomp(numeric_data_matrix)
-#get summary of plots
-summary(PCA)
-#plot the PCA with the top two principal components showing the vectors
-stats::biplot(PCA)
-#make species name a factor for analysis and plots
-data_for_analysis$species_name <- as.factor(data_for_analysis$species_name)
-#plot of PCA with the assigned species name 
-plot(PCA$x[ , 1:2], col = data_for_analysis$species_name, pch = 16)
-#plot of PCA showing result of kmeans clustering on pca plot
-plot(PCA$x[ , 1:2], col = kmeans_clustering$cluster,pch = 16)
-
-
-
-## PCA with PCATools package
-#transpose elements nnumerical data.For pca in PCAtools package, the variables ar expected to be in roas and samples in column
-transposed_numeric_data_matrix <- t(numeric_data_matrix) 
-#check to see new dimensions
-dim(transposed_numeric_data_matrix)
-dim(numeric_data_matrix)
-View(transposed_numeric_data_matrix)
-#create metadata to use in pca analysis.It is strictly enforced that rownames(metada) == colnames(mat) when using pca function. Metadata simply a dataframe with the different factors of the samples in a row and the row being nemaed the sample name. For our purposes factor would be species name and kmeans_analysis
-metadata_pca <- data.frame(as.factor(data_for_analysis$species_name), as.factor(kmeans_clustering$cluster), row.names = colnames(transposed_numeric_data_matrix)) 
-colnames(metadata_pca) <- c("species_name", "kmeans_cluster")
-#peform PCA analysis 
-set.seed(123)
-pcatools_pca <- pca(mat = transposed_numeric_data_matrix, metadata = metadata_pca)
-
-#get biplot showing loading using colors from the groupin
-PCAtools::biplot(pcatools_pca, showLoadings = TRUE, legendPosition = "right")
-#plot without loading but 
-
-
-#plot using species as a factor
-PCAtools::biplot(pcatools_pca, lab = rownames(metadata_pca), colby = "species_name", legendPosition = "right", encircle = TRUE, encircleFill = TRUE)
-
-
-#colour by k-means analysis
-PCAtools::biplot(pcatools_pca, lab = rownames(metadata_pca), colby = "kmeans_cluster", colkey = c( "1" = "red", "2" = "blue", "3" =  "green", "4" = "black"), legendPosition = "right", encircle = TRUE, encircleFill = TRUE)
-
-
-
-# 
-# ##use t-Distributed Stochastic Neighbour Embedding (t-SNE) to reduce dimensions.
-set.seed(555)
-rtsne <- Rtsne(numeric_data_matrix, perplexity = 13, check_duplicates = FALSE)
-plot(rtsne$Y, col = data_for_analysis$species_name, pch = 16,)
-
-
-tsne_plot <- data.frame(x = rtsne$Y[ , 1], y = rtsne$Y[ , 2], species_name = as.factor(data_for_analysis$species_name))
-ggplot(tsne_plot, aes(x = x, y = y)) +
-  geom_encircle(alpha = 0.2, aes(group = species_name, fill = species_name)) +
-  geom_point(aes(color = species_name))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ### Perform unsupervised hierarchical clustering  
 
 
@@ -387,14 +347,12 @@ ggplot(tsne_plot, aes(x = x, y = y)) +
 data_for_analysis$clean_nucleotides <- DNAStringSet(data_for_analysis$clean_nucleotides)
 #Assign the species names as names for the sequences
 names(data_for_analysis$clean_nucleotides) <- rownames(data_for_analysis)
-
-
 #Align sequences
 aligned_data_for_analysis <- DNAStringSet(muscle::muscle(data_for_analysis$clean_nucleotides, gapopen=-300),use.names=TRUE)
 #Writing the alignment to a FASTA file
 writeXStringSet(aligned_data_for_analysis, file = "Ursidae_aligned_seq.fasta")
 #Viewed alignment in browser to check for irregularities
-BrowseSeqs(aligned_data_for_analysis)
+# BrowseSeqs(aligned_data_for_analysis)
 #Check the class of the alignments 
 class(aligned_data_for_analysis)
 
@@ -410,22 +368,13 @@ distance_matrix
 #Using as.dist function to convert distance matrix for use in the hclust function
 distance_matrix<-as.dist(distance_matrix)
 
-##perform hierachichal clustering
+##perform hierarchical clustering
 #complete model will be used to use distance between furthest elementsin cluster
 model = "complete"
 set.seed(456)
-hierach <- hclust(distance_matrix, method = model)
+hierach <- hclust(distance_matrix, method = model) %>%
+  as.dendrogram()
 plot(hierach)
-
-##Plot clusters on a PCA
-#Define cluster by cutting the tree at a specific height or defining the number of clusters
-plot(PCA$x[ ,1:2], col = cutree(hierach, k = 4), pch = 16)
-#compare the results of hierachical clustering vs. k-means
-table(kmeans_clustering$cluster, cutree(hierach, h = 0.03))
-
-
-
-
 
 
 
@@ -439,14 +388,20 @@ table(kmeans_clustering$cluster, cutree(hierach, h = 0.03))
 distance_matrix_features <- dist(numeric_data_matrix)
 #perform hierarchical clustering
 set.seed(789)
-hierach2 <- hclust(distance_matrix_features, method = model)
+hierach2 <- hclust(distance_matrix_features, method = model) %>%
+  as.dendrogram()
 plot(hierach2)
 
-##Plot clusters on a PCA
-#Define cluster by cutting the tree at a specific height or defining the number of clusters
-plot(PCA$x[ ,1:2], col = cutree(hierach2, k = 4), pch = 16)
-#compare the results of hierarchical clustering vs. k-means
-table(kmeans_clustering$cluster, cutree(hierach2, h = 0.03))
+
+
+
+
+###Plot hierarchical clusters on tanglegram to compare
+dendlist(hierach, hierach2) %>%
+  untangle() %>%
+  tanglegram(margin_inner= 15, 
+             main = "Figure showing hierarchical clustering results", main_left = "Dendogram done with alignment", main_right = "Dendogram done with sequence features", 
+             cex_main = 3, cex_main_left = 1.5, cex_main_right = 1.5)
 
 
 
@@ -462,5 +417,119 @@ table(kmeans_clustering$cluster, cutree(hierach2, h = 0.03))
 
 
 
+###Plots to reduce dimension
+
+# ##use t-Distributed Stochastic Neighbour Embedding (t-SNE) to reduce dimensions.
+set.seed(121)
+rtsne <- Rtsne(numeric_data_matrix, perplexity = 1, check_duplicates = FALSE)
+#perform t-SNE withe different perplexities
+set.seed(131)
+rtsne2 <- Rtsne(numeric_data_matrix, perplexity = 4, check_duplicates = FALSE)
+set.seed(141)
+rtsne3 <- Rtsne(numeric_data_matrix, perplexity = 8, check_duplicates = FALSE)
+set.seed(151)
+rtsne4 <- Rtsne(numeric_data_matrix, perplexity = 13, check_duplicates = FALSE)
 
 
+#create t-SNE plots
+sTSNE_plot1 <- create_tSNE_plot(title_of_plot = "t-SNE plot showing the clusters by species: perplexity = 1", rtsne = rtsne)
+sTSNE_plot2 <- create_tSNE_plot(title_of_plot = "t-SNE plot showing the clusters by species: perplexity = 4", rtsne = rtsne2)
+sTSNE_plot3 <- create_tSNE_plot(title_of_plot = "t-SNE plot showing the clusters by species: perplexity = 8", rtsne = rtsne3)
+sTSNE_plot4 <- create_tSNE_plot(title_of_plot = "t-SNE plot showing the clusters by species: perplexity = 13", rtsne = rtsne4)
+
+
+
+
+
+
+## PCA with PCATools package
+#transpose elements nnumerical data.For pca in PCAtools package, the variables ar expected to be in roas and samples in column
+transposed_numeric_data_matrix <- t(numeric_data_matrix) 
+#check to see new dimensions
+dim(transposed_numeric_data_matrix)
+dim(numeric_data_matrix)
+View(transposed_numeric_data_matrix)
+#create metadata to use in pca analysis.It is strictly enforced that rownames(metada) == colnames(mat) when using pca function. Metadata simply a dataframe with the different factors of the samples in a row and the row being nemaed the sample name. For our purposes factor would be species name, kmeans_analysis, and hierarchical results with alignment and sequence features
+metadata_pca <- data.frame(as.factor(data_for_analysis$species_name), as.factor(kmeans_clustering$cluster), as.factor(cutree(hierach, k = 4)), as.factor(cutree(hierach2, k = 4)), row.names = colnames(transposed_numeric_data_matrix)) 
+colnames(metadata_pca) <- c("species_name", "kmeans_cluster", "cluster_by_alignment", "cluster_by_feature")
+#peform PCA analysis 
+set.seed(123)
+pcatools_pca <- pca(mat = transposed_numeric_data_matrix, metadata = metadata_pca)
+
+#get biplot showing loading vectors using colors from the groupin
+pca_loadong_plot <- PCAtools::biplot(pcatools_pca, 
+                 showLoadings = TRUE, legendPosition = "right",
+                 title = "PCA plot showing loading vectors", titleLabSize = 22,
+                 colLoadingsArrows = "blue", colby = "species_name")
+
+
+
+
+
+# plot PCA with different factors
+PCA_plot1 <- create_PCA_plot(title_of_plot = "PCA plot showing clustering by species", clustering = "species_name")
+PCA_plot2 <- create_PCA_plot(title_of_plot = "PCA plot showing clustering by k-means analysis", clustering = "kmeans_cluster")
+PCA_plot3 <- create_PCA_plot(title_of_plot = "PCA plot showing clustering by alignment based Hierarchical clustering", clustering = "cluster_by_alignment")
+PCA_plot4 <- create_PCA_plot(title_of_plot = "PCA plot showing clustering by feature based Hierarchical clustering", clustering = "cluster_by_feature")
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### plots to show ####
+#plot 1 k-analysis
+plot1 <- ggarrange(ss_plot, sil_plot, 
+                  labels = c("A", "B"),
+                  ncol = 2, nrow = 1)
+annotate_figure(plot1, top = text_grob("Plots to analyze number of K", size = 20, color = "red", face ="bold"))
+
+
+
+
+
+#plot 2 hierarchical clustering dendograms
+dendlist(hierach, hierach2) %>%
+  untangle() %>%
+  tanglegram(margin_inner= 15, 
+             main = "Figure showing hierarchical clustering results", main_left = "Dendogram done with alignment", main_right = "Dendogram done with sequence features", 
+             cex_main = 3, cex_main_left = 1.5, cex_main_right = 1.5)
+
+
+
+#plot 3 t-SNE analysis for different perplexities
+plot3 <- ggarrange(sTSNE_plot1, sTSNE_plot2, sTSNE_plot3, sTSNE_plot4, 
+                  labels = c("A", "B", "C", "D"),
+                  ncol = 2, nrow = 2,
+                  common.legend = TRUE, legend = "bottom")
+annotate_figure(plot3, top = text_grob("t-SNE analysis for different perplexities", size = 20, color = "red", face ="bold"))
+
+
+
+#plot 4 t-SNE vs PCA
+plot4 <- ggarrange(sTSNE_plot4, PCA_plot1, 
+                   labels = c("A", "B"),
+                   ncol = 2, nrow = 1, legend = "bottom")
+annotate_figure(plot4, top = text_grob("t-SNE vs PCA", size = 20, color = "red", face ="bold"))
+
+
+#plot 5 PCA showing loading vectors
+pca_loadong_plot
+
+
+
+#plot 6 Different clustering analysis on PCA
+plot6 <- ggarrange(PCA_plot1, PCA_plot2, PCA_plot3, PCA_plot4, 
+          labels = c("A", "B", "C", "D"),
+          ncol = 2, nrow = 2,
+          common.legend = TRUE, legend = "bottom")
+annotate_figure(plot6, top = text_grob("Different clustering analysis on PCA", size = 20, color = "red", face ="bold"))
+
+# dev.off()
