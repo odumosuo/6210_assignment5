@@ -3,6 +3,7 @@
 # install.packages("Rtsne")
 # install.packages("BiocManager")
 # BiocManager::install("PCAtools")
+# install.packages("ggalt")
 
 # ### load package(S)
 library(tidyverse)
@@ -15,6 +16,7 @@ library(vegan)
 library(ape)
 library(DECIPHER)
 library(PCAtools)
+library(ggalt)
 
 ###Get present Working Directory. Previously set working directory with setwd(). Excluded runnable function to prevent error.
 getwd()
@@ -193,6 +195,8 @@ View(combined_NCBI_and_Bold)
 combined_NCBI_and_Bold <- cbind(combined_NCBI_and_Bold, as.data.frame(dinucleotideFrequency(combined_NCBI_and_Bold$clean_nucleotides, as.prob = TRUE)))
 
 combined_NCBI_and_Bold <- cbind(combined_NCBI_and_Bold, as.data.frame(trinucleotideFrequency(combined_NCBI_and_Bold$clean_nucleotides, as.prob = TRUE)))
+#Add k-mer of 4 to the oligonucleotide frequencies at combined_NCBI_and_Bold to increase the accuracy of the machine learning algorithyms.
+combined_NCBI_and_Bold <- cbind(combined_NCBI_and_Bold, as.data.frame(oligonucleotideFrequency(x = combined_NCBI_and_Bold$clean_nucleotides, width = 4, as.prob = TRUE)))
 #check to see everything added
 names(combined_NCBI_and_Bold)
 View(combined_NCBI_and_Bold)
@@ -240,6 +244,10 @@ data_for_analysis <- subset_of_combined %>%
   sample_n(size = 10)
 ## check species count again
 table(data_for_analysis$species_name)
+### Turn data for analysis to data frame
+data_for_analysis <- as.data.frame(data_for_analysis)
+##add names of rows. Add the number count for each species. There are 10
+rownames(data_for_analysis) <- paste(data_for_analysis$species_name, 1:10, sep = ".")
 view(data_for_analysis)
 
 
@@ -249,8 +257,10 @@ view(data_for_analysis)
 
 ###figure out how many clusters to use
 ## create numberic data matrix for analysis
-numeric_data_matrix <- data_for_analysis[ , 10:93]
-numeric_data_matrix
+numeric_data_matrix <- as.matrix(data_for_analysis[ , 10:349])
+#create names for samples in matrix
+rownames(numeric_data_matrix) <- rownames(data_for_analysis)
+View(numeric_data_matrix)
 
 ## Figure out K using sum of squares
 # Get the total withing sum of squares for k's at different values (1-15). The elbow position of the plot is the K to use. However, we already know posteriori that our data has 7 species. Function get_tot_withinss defined above
@@ -314,22 +324,47 @@ plot(PCA$x[ , 1:2], col = kmeans_clustering$cluster,pch = 16)
 
 
 ## PCA with PCATools package
+#transpose elements nnumerical data.For pca in PCAtools package, the variables ar expected to be in roas and samples in column
+transposed_numeric_data_matrix <- t(numeric_data_matrix) 
+#check to see new dimensions
+dim(transposed_numeric_data_matrix)
+dim(numeric_data_matrix)
+View(transposed_numeric_data_matrix)
+#create metadata to use in pca analysis.It is strictly enforced that rownames(metada) == colnames(mat) when using pca function. Metadata simply a dataframe with the different factors of the samples in a row and the row being nemaed the sample name. For our purposes factor would be species name and kmeans_analysis
+metadata_pca <- data.frame(as.factor(data_for_analysis$species_name), as.factor(kmeans_clustering$cluster), row.names = colnames(transposed_numeric_data_matrix)) 
+colnames(metadata_pca) <- c("species_name", "kmeans_cluster")
+#peform PCA analysis 
+set.seed(123)
+pcatools_pca <- pca(mat = transposed_numeric_data_matrix, metadata = metadata_pca)
+
+#get biplot showing loading using colors from the groupin
+PCAtools::biplot(pcatools_pca, showLoadings = TRUE, legendPosition = "right")
+#plot without loading but 
+
+
+#plot using species as a factor
+PCAtools::biplot(pcatools_pca, lab = rownames(metadata_pca), colby = "species_name", legendPosition = "right", encircle = TRUE, encircleFill = TRUE)
+
+
+#colour by k-means analysis
+PCAtools::biplot(pcatools_pca, lab = rownames(metadata_pca), colby = "kmeans_cluster", colkey = c( "1" = "red", "2" = "blue", "3" =  "green", "4" = "black"), legendPosition = "right", encircle = TRUE, encircleFill = TRUE)
 
 
 
-
+# 
 # ##use t-Distributed Stochastic Neighbour Embedding (t-SNE) to reduce dimensions.
-# set.seed(555)
-# rtsne <- Rtsne(numeric_data_matrix)
-# plot(rtsne$Y, col = kmeans_clustering$cluste )
-# 
-# 
-# 
-# ## use Non-metric Multi-dimensional Scaling(NMDS) ro reduce dimensions
-# set.seed(444)
-# nmds = metaMDS(numeric_data_matrix, distance = "bray")
-# plot(nmds)
-# 
+set.seed(555)
+rtsne <- Rtsne(numeric_data_matrix, perplexity = 13, check_duplicates = FALSE)
+plot(rtsne$Y, col = data_for_analysis$species_name, pch = 16,)
+
+
+tsne_plot <- data.frame(x = rtsne$Y[ , 1], y = rtsne$Y[ , 2], species_name = as.factor(data_for_analysis$species_name))
+ggplot(tsne_plot, aes(x = x, y = y)) +
+  geom_encircle(alpha = 0.2, aes(group = species_name, fill = species_name)) +
+  geom_point(aes(color = species_name))
+
+
+
 
 
 
@@ -348,11 +383,11 @@ plot(PCA$x[ , 1:2], col = kmeans_clustering$cluster,pch = 16)
 
 
 ### Alignment based hiearchical clustering
-#Turn data to data frame and sequences to DNAstringset
-data_for_analysis <- as.data.frame(data_for_analysis)
+# sequences to DNAstringset
 data_for_analysis$clean_nucleotides <- DNAStringSet(data_for_analysis$clean_nucleotides)
 #Assign the species names as names for the sequences
-names(data_for_analysis$clean_nucleotides) <- data_for_analysis$species_name
+names(data_for_analysis$clean_nucleotides) <- rownames(data_for_analysis)
+
 
 #Align sequences
 aligned_data_for_analysis <- DNAStringSet(muscle::muscle(data_for_analysis$clean_nucleotides, gapopen=-300),use.names=TRUE)
@@ -378,6 +413,7 @@ distance_matrix<-as.dist(distance_matrix)
 ##perform hierachichal clustering
 #complete model will be used to use distance between furthest elementsin cluster
 model = "complete"
+set.seed(456)
 hierach <- hclust(distance_matrix, method = model)
 plot(hierach)
 
@@ -402,6 +438,7 @@ table(kmeans_clustering$cluster, cutree(hierach, h = 0.03))
 #get distance matrix using sequence features
 distance_matrix_features <- dist(numeric_data_matrix)
 #perform hierarchical clustering
+set.seed(789)
 hierach2 <- hclust(distance_matrix_features, method = model)
 plot(hierach2)
 
@@ -424,26 +461,6 @@ table(kmeans_clustering$cluster, cutree(hierach2, h = 0.03))
 
 
 
-
-
-
-
-# 
-# ##PCA biplot shows that the features that account for most of the variances are the Aprop, Tprop, Gprop and Cprop and a few dinucleotides. 
-# #Perform analysis again using features mentioned above
-# names(data_for_analysis)
-# smaller_numeric_data_matrix <- data_for_analysis[ , 10:29]
-# #perform k-means clustering
-# set.seed(555)
-# kmeans_clustering2 <- kmeans(smaller_numeric_data_matrix, 7, nstart = 10)
-# kmeans_clustering2
-# ##use PCA plot to reduce dimensions 
-# PCA2 <- prcomp(smaller_numeric_data_matrix)
-# #get summary of plots
-# summary(PCA2)
-# #plot the PCA with the top two principal components
-# biplot(PCA2)
-# names(smaller_numeric_data_matrix)
 
 
 
